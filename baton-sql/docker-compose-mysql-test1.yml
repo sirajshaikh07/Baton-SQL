@@ -1,0 +1,29 @@
+version: '3.8'
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: baton-mysql-employee
+    environment:
+      MYSQL_ROOT_PASSWORD: Siraj           # Add this line
+      MYSQL_DATABASE: employee             # Your desired database
+      # Remove MYSQL_USER and MYSQL_PASSWORD if you want to use only root
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./test/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-pSiraj",                       # Use root password here
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    command: --default-authentication-plugin=mysql_native_password

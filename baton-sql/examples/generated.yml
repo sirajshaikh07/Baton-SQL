@@ -1,0 +1,158 @@
+---
+app_name: "MySQL Baton"
+app_description: "Baton SQL sync for MySQL"
+
+connect:
+  dsn: "mysql://root:Siraj@127.0.0.1:3306/employee"
+
+resource_types:
+  user:
+    name: "User"
+    description: "A user within the MySQL system"
+    list:
+      query: |
+        SELECT
+          u.id,
+          u.username,
+          u.email,
+          u.employee_id,
+          u.status,
+          u.account_type,
+          u.created_at,
+          CASE WHEN u.last_login IS NULL THEN '' ELSE DATE_FORMAT(u.last_login, '%Y-%m-%dT%H:%i:%sZ') END as last_login,
+          u.manager_id,
+          m.username as manager_username,
+          m.email as manager_email
+        FROM users u
+        LEFT JOIN users m ON u.manager_id = m.id
+      pagination:
+        strategy: "offset"
+        primary_key: "id"
+      map:
+        id: ".username"
+        display_name: ".username"
+        description: ".username"
+        traits:
+          user:
+            status: ".status"
+            login: ".username"
+            emails:
+              - ".email"
+            account_type: ".account_type"
+            employee_ids:
+              - ".employee_id"
+            last_login: ".last_login"
+            manager_id: ".manager_id"
+            manager_email: ".manager_email"
+            profile:
+              user_id: ".id"
+              created_at: ".created_at"
+              last_login: ".last_login"
+              manager_id: ".manager_id"
+              manager_username: ".manager_username"
+              manager_email: ".manager_email"
+
+    account_provisioning:
+      schema:
+        - name: "username"
+          description: "The username for the new user"
+          type: "string"
+          placeholder: "new_user"
+          required: true
+        - name: "email"
+          description: "Email address for the new user"
+          type: "string"
+          placeholder: "user@example.com"
+          required: true
+        - name: "employee_id"
+          description: "Employee ID for the new user"
+          type: "string"
+          placeholder: "EMP001"
+          required: false
+      credentials:
+        random_password:
+          max_length: 32
+          min_length: 16
+          preferred: true
+        no_password:
+          preferred: false
+      validate:
+        vars:
+          username: "username"
+          email: "email"
+        query: |
+          SELECT u.id, u.username, u.email FROM users u WHERE u.username = ?<username>
+      create:
+        vars:
+          username: "input.username"
+          email: "input.email"
+          employee_id: "has(input.employee_id) ? input.employee_id : null"
+          password: "password"
+        queries:
+          - |
+            INSERT INTO users (username, email, employee_id, status, account_type, created_at, password_hash)
+            VALUES (?<username>, ?<email>, ?<employee_id>, 'active', 'human', NOW(), SHA2(?<password>, 256));
+
+  role:
+    name: "Role"
+    description: "A role within the MySQL system"
+    list:
+      query: |
+        SELECT id, role_name FROM roles
+      pagination:
+        strategy: "offset"
+        primary_key: "id"
+      map:
+        id: ".role_name"
+        display_name: ".role_name"
+        description: ".role_name"
+        traits:
+          role:
+            profile:
+              role_id: ".id"
+
+    static_entitlements:
+      - id: "member"
+        display_name: "'Member'"
+        description: "'Role member'"
+        purpose: "assignment"
+        grantable_to:
+          - "user"
+
+    entitlement_provisioning:
+      - entitlement_id: "member"
+        grant:
+          vars:
+            username: "principal.id"
+            role_name: "resource.id"
+          queries:
+            - |
+              INSERT INTO user_roles (user_id, role_id)
+              SELECT u.id, r.id FROM users u, roles r
+              WHERE u.username = ?<username> AND r.role_name = ?<role_name>
+              ON DUPLICATE KEY UPDATE user_id = user_id;
+        revoke:
+          vars:
+            username: "principal.id"
+            role_name: "resource.id"
+          queries:
+            - |
+              DELETE ur FROM user_roles ur
+              JOIN users u ON u.id = ur.user_id
+              JOIN roles r ON r.id = ur.role_id
+              WHERE u.username = ?<username> AND r.role_name = ?<role_name>;
+
+    grants:
+      - query: |
+          SELECT u.username, r.role_name
+          FROM users u
+          JOIN user_roles ur ON u.id = ur.user_id
+          JOIN roles r ON r.id = ur.role_id
+        pagination:
+          strategy: "offset"
+          primary_key: "username"
+        map:
+          - skip_if: ".role_name != resource.ID"
+            principal_id: ".username"
+            principal_type: "user"
+            entitlement_id: "member"
